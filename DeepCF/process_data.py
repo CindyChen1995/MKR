@@ -80,7 +80,7 @@ class Dataset(object):
 
 def getTrainMatrix(train):
     num_users, num_items = train.shape
-    train_matrix = np.zeros([num_users, num_items], dtype=np.int32)
+    train_matrix = np.zeros([num_users, num_items], dtype=np.float32)
     for (u, i) in train.keys():
         train_matrix[u][i] = 1
     return train_matrix
@@ -102,11 +102,16 @@ def get_train_instances(train, num_negatives, num_items):
             user_input.append(u)
             item_input.append(j)
             labels.append(0)
-    # shuffled_idx = np.random.permutation(len(user_input))
-    # user_input = np.array(user_input)[shuffled_idx]
-    # item_input = np.array(item_input)[shuffled_idx]
-    # labels = np.array(labels)[shuffled_idx]
-    return user_input, item_input, labels
+    shuffled_idx = np.random.permutation(len(user_input))
+    user_input = np.array(user_input)[shuffled_idx]
+    item_input = np.array(item_input)[shuffled_idx]
+    labels = np.array(labels)[shuffled_idx]
+
+    users = np.reshape(user_input, [-1, 1])
+    items = np.reshape(item_input, [-1, 1])
+    labels = np.reshape(labels, [-1, 1])
+    data = np.concatenate([users, items, labels], axis=1)
+    return data
 
 
 def load_data(args):
@@ -124,16 +129,16 @@ def load_rating(args):
     dataset = Dataset(args.path + args.dataset)
     train_data, testRatings, testNegatives = dataset.trainMatrix, dataset.testRatings, dataset.testNegatives
     num_users, num_items = train_data.shape
-    try:
-        users, items, labels = pickle.load(open(args.path + args.dataset + '/data_negative.p', mode='rb'))
-    except:
-        users, items, labels = get_train_instances(train_data, args.num_neg, num_items)
-        pickle.dump((users, items, labels), open(args.path + args.dataset + '/data_negative.p', mode='wb'))
-    users = np.reshape(users, [-1, 1])
-    items = np.reshape(items, [-1, 1])
-    labels = np.reshape(labels, [-1, 1])
-    data = np.concatenate([users, items, labels], axis=1)
-    return num_users, num_items, data, np.array(testRatings), testNegatives
+    # try:
+    #     users, items, labels = pickle.load(open(args.path + args.dataset + '/data_negative.p', mode='rb'))
+    # except:
+    #     users, items, labels = get_train_instances(train_data, args.num_neg, num_items)
+    #     pickle.dump((users, items, labels), open(args.path + args.dataset + '/data_negative.p', mode='wb'))
+    # users = np.reshape(users, [-1, 1])
+    # items = np.reshape(items, [-1, 1])
+    # labels = np.reshape(labels, [-1, 1])
+    # data = np.concatenate([users, items, labels], axis=1)
+    return num_users, num_items, train_data, np.array(testRatings), testNegatives
 
 
 def load_kg(args):

@@ -5,18 +5,21 @@ from keras.models import Model
 from keras.layers import Embedding, Input, Dense, Flatten, concatenate, Dot, Lambda, multiply, Reshape, multiply
 from keras.optimizers import Adagrad, Adam, SGD, RMSprop
 from keras import backend as K
+from keras.utils import plot_model
 from evaluate import evaluate_model
 from Dataset import Dataset
 from time import time
 import argparse
 import DMF
 import MLP
+import logging
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run DeepF.")
-    parser.add_argument('--path', nargs='?', default='Data/',
+    parser.add_argument('--path', nargs='?', default='../data/',
                         help='Input data path.')
-    parser.add_argument('--dataset', nargs='?', default='ml-1m',
+    parser.add_argument('--dataset', nargs='?', default='movie',
                         help='Choose a dataset.')
     parser.add_argument('--epochs', type=int, default=20,
                         help='Number of epochs.')
@@ -33,11 +36,11 @@ def parse_args():
                         help='Number of negative instances to pair with a positive instance.')
     parser.add_argument('--lr', type=float, default=0.0001,
                         help='Learning rate.')
-    parser.add_argument('--learner', nargs='?', default='sgd',
+    parser.add_argument('--learner', nargs='?', default='adam',
                         help='Specify an optimizer: adagrad, adam, rmsprop, sgd')
     parser.add_argument('--verbose', type=int, default=1,
                         help='Show performance per X iterations')
-    parser.add_argument('--out', type=int, default=1,
+    parser.add_argument('--out', type=int, default=0,
                         help='Whether to save the trained model.')
     parser.add_argument('--dmf_pretrain', nargs='?', default='',
                         help='Specify the pretrain model file for DMF part. If empty, no pretrain will be used')
@@ -56,14 +59,14 @@ def get_model(train, num_users, num_items, userlayers, itemlayers, layers):
     item_input = Input(shape=(1,), dtype='int32', name='item_input')
     
     # Embedding layer
-    user_rating= Lambda(lambda x: tf.gather(user_matrix, tf.to_int32(x)))(user_input)
+    user_rating = Lambda(lambda x: tf.gather(user_matrix, tf.to_int32(x)))(user_input)
     item_rating = Lambda(lambda x: tf.gather(item_matrix, tf.to_int32(x)))(item_input)
     user_rating = Reshape((num_items, ))(user_rating)
     item_rating = Reshape((num_users, ))(item_rating)
 
     # DMF part
-    userlayer = Dense(userlayers[0],  activation="linear" , name='user_layer0')
-    itemlayer = Dense(itemlayers[0], activation="linear" , name='item_layer0')
+    userlayer = Dense(userlayers[0],  activation="linear", name='user_layer0')
+    itemlayer = Dense(itemlayers[0], activation="linear", name='item_layer0')
     dmf_user_latent = userlayer(user_rating)
     dmf_item_latent = itemlayer(item_rating)
     for idx in range(1, dmf_num_layer):
@@ -74,8 +77,8 @@ def get_model(train, num_users, num_items, userlayers, itemlayers, layers):
     dmf_vector = multiply([dmf_user_latent, dmf_item_latent])
 
     # MLP part 
-    MLP_Embedding_User = Dense(layers[0]//2, activation="linear" , name='user_embedding')
-    MLP_Embedding_Item  = Dense(layers[0]//2, activation="linear" , name='item_embedding')
+    MLP_Embedding_User = Dense(layers[0] // 2, activation="linear", name='user_embedding')
+    MLP_Embedding_Item = Dense(layers[0] // 2, activation="linear", name='item_embedding')
     mlp_user_latent = MLP_Embedding_User(user_rating)
     mlp_item_latent = MLP_Embedding_Item(item_rating)
     mlp_vector = concatenate([mlp_user_latent, mlp_item_latent])
@@ -95,12 +98,14 @@ def get_model(train, num_users, num_items, userlayers, itemlayers, layers):
     
     return model_
 
+
 def getTrainMatrix(train):
     num_users, num_items = train.shape
     train_matrix = np.zeros([num_users, num_items], dtype=np.int32)
     for (u, i) in train.keys():
         train_matrix[u][i] = 1
     return train_matrix
+
 
 def load_pretrain_model1(model, dmf_model, dmf_layers,):
     # MF embeddings
@@ -123,6 +128,7 @@ def load_pretrain_model1(model, dmf_model, dmf_layers,):
     model.get_layer('prediction').set_weights([new_weights, new_b]) 
     return model
 
+
 def load_pretrain_model2(model, mlp_model, mlp_layers):
     # MLP embeddings
     mlp_user_embeddings = mlp_model.get_layer('user_embedding').get_weights()
@@ -143,6 +149,7 @@ def load_pretrain_model2(model, mlp_model, mlp_layers):
     # 0.5 means the contributions of MF and MLP are equal
     model.get_layer('prediction').set_weights([0.5*new_weights, 0.5*new_b]) 
     return model
+
 
 def get_train_instances(train, num_negatives):
     user_input, item_input, labels = [], [], []
@@ -178,11 +185,14 @@ if __name__ == '__main__':
     verbose = args.verbose
     dmf_pretrain = args.dmf_pretrain
     mlp_pretrain = args.mlp_pretrain
+
+    logging.basicConfig(filename='logs/%s_CFNet_%d.log' % (args.dataset, time()),
+                        level=logging.INFO, filemode='w')
             
     topK = 10
     evaluation_threads = 1  # mp.cpu_count()
     print("DeepCF arguments: %s " % args)
-    model_out_file = 'Pretrain/%s_CFNet_%d.h5' %(args.dataset, time())
+    model_out_file = 'Pretrain/%s_CFNet_%d.h5' % (args.dataset, time())
 
     # Loading data
     t1 = time()
@@ -190,7 +200,7 @@ if __name__ == '__main__':
     train, testRatings, testNegatives = dataset.trainMatrix, dataset.testRatings, dataset.testNegatives   
     num_users, num_items = train.shape
     print("Load data done [%.1f s]. #user=%d, #item=%d, #train=%d, #test=%d" 
-          %(time()-t1, num_users, num_items, train.nnz, len(testRatings)))
+          % (time()-t1, num_users, num_items, train.nnz, len(testRatings)))
     
     # Build model
     model = get_model(train, num_users, num_items, userlayers, itemlayers, layers)
@@ -219,6 +229,7 @@ if __name__ == '__main__':
     (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
     hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
     print('Init: HR = %.4f, NDCG = %.4f' % (hr, ndcg))
+    logging.info('Init: HR = %.4f, NDCG = %.4f' % (hr, ndcg))
     best_hr, best_ndcg, best_iter = hr, ndcg, -1
     if args.out > 0:
         model.save_weights(model_out_file, overwrite=True) 
@@ -241,11 +252,14 @@ if __name__ == '__main__':
             hr, ndcg, loss = np.array(hits).mean(), np.array(ndcgs).mean(), hist.history['loss'][0]
             print('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, loss = %.4f [%.1f s]' 
                   % (epoch,  t2-t1, hr, ndcg, loss, time()-t2))
+            logging.info('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, loss = %.4f [%.1f s]'
+                  % (epoch,  t2-t1, hr, ndcg, loss, time()-t2))
             if hr > best_hr:
                 best_hr, best_ndcg, best_iter = hr, ndcg, epoch
                 if args.out > 0: 
                     model.save_weights(model_out_file, overwrite=True)
 
     print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f. " %(best_iter, best_hr, best_ndcg))
+    logging.info("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f. " %(best_iter, best_hr, best_ndcg))
     if args.out > 0:
         print("The best CFNet model is saved to %s" % model_out_file)

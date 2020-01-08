@@ -12,11 +12,11 @@ from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 from layers import Dense
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.5 # maximun alloc gpu50% of MEM
-config.gpu_options.allow_growth = True #allocate dynamically
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# config = tf.ConfigProto()
+# config.gpu_options.per_process_gpu_memory_fraction = 0.5 # maximun alloc gpu50% of MEM
+# config.gpu_options.allow_growth = True #allocate dynamically
 
 
 class Model(object):
@@ -45,7 +45,7 @@ class Model(object):
         self.user_indices = tf.placeholder(tf.int32, [None], 'user_indices')
         self.item_indices = tf.placeholder(tf.int32, [None], 'item_indices')
         self.labels = tf.placeholder(tf.float32, [None], 'labels')
-        self.keep_drop = tf.placeholder(tf.float32)
+        self.drop_out = tf.placeholder(tf.float32)
 
     def _build_model(self):
         self.user_input = tf.nn.embedding_lookup(self.user_matrix, self.user_indices)
@@ -56,8 +56,8 @@ class Model(object):
         self._build_predict()
 
     def _build_mlp_layers(self):
-        user_layer = Dense(self.n_item, self.layers[0] // 2, act='linear', name='user_embedding')
-        item_layer = Dense(self.n_user, self.layers[0] // 2, act='linear', name='item_embedding')
+        user_layer = Dense(self.n_item, self.layers[0] // 2, act=None, name='user_embedding')
+        item_layer = Dense(self.n_user, self.layers[0] // 2, act=None, name='item_embedding')
         self.mlp_user_embeddings = user_layer(self.user_input)
         self.mlp_item_embeddings = item_layer(self.item_input)
         self.mlp_vector = tf.concat([self.mlp_user_embeddings, self.mlp_item_embeddings], axis=1)
@@ -66,15 +66,15 @@ class Model(object):
         self.vars_mlp.extend(item_layer.vars)
 
         for i in range(1, len(self.layers)):
-            mlp_layer = Dense(input_dim=self.layers[i-1], output_dim=self.layers[i], dropout=self.keep_drop,
+            mlp_layer = Dense(input_dim=self.layers[i-1], output_dim=self.layers[i], dropout=self.drop_out,
                               name='layer%d' % i)
             self.mlp_vector = mlp_layer(self.mlp_vector)
 
             self.vars_mlp.extend(mlp_layer.vars)
 
     def _build_dmf_layers(self):
-        user_layer = Dense(self.n_item, self.user_layers[0], act='linear', name='user_layer0')
-        item_layer = Dense(self.n_user, self.item_layers[0], act='linear', name='item_layer0')
+        user_layer = Dense(self.n_item, self.user_layers[0], act=None, name='user_layer0')
+        item_layer = Dense(self.n_user, self.item_layers[0], act=None, name='item_layer0')
         self.user_vector = user_layer(self.user_input)
         self.item_vector = item_layer(self.item_input)
 
@@ -108,6 +108,9 @@ class Model(object):
         #                tf.nn.l2_loss(self.mlp_user_embeddings) + tf.nn.l2_loss(self.mlp_item_embeddings)
         self.l2_loss = None
         for var in self.vars_dmf:
+            if self.l2_loss is None:
+                self.l2_loss = tf.nn.l2_loss(var)
+                continue
             self.l2_loss += tf.nn.l2_loss(var)
         for var in self.vars_mlp:
             self.l2_loss += tf.nn.l2_loss(var)
